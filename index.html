@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Color Walk — Cover Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/node-vibrant@3.1.6/dist/vibrant.min.js"></script>
+  <script type="module">
+    try {
+      const { Muxer, ArrayBufferTarget } = await import('https://unpkg.com/mp4-muxer@latest/build/mp4-muxer.js');
+      window.Mp4Muxer = { Muxer, ArrayBufferTarget };
+    } catch(e) { console.warn('mp4-muxer unavailable, will fall back to webm', e); }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; overscroll-behavior: none; background: #F8F5F0; color: #2D2D2D; }
+    input[type='range'] { -webkit-appearance: none; appearance: none; height: 4px; background: #E8E5E0; border-radius: 4px; outline: none; cursor: pointer; width: 100%; }
+    input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #F26451; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.08); transition: transform 0.2s; }
+    input[type='range']::-webkit-slider-thumb:hover { transform: scale(1.1); }
+    input[type='range']::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #F26451; border: none; cursor: pointer; }
+    input[type='color'] { -webkit-appearance: none; border: none; padding: 0; cursor: pointer; }
+    input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type='color']::-webkit-color-swatch { border: 1px solid #E8E5E0; border-radius: 8px; }
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    @keyframes cdFadeIn  { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes cdScaleIn { from { opacity: 0; transform: scale(0.94) } to { opacity: 1; transform: scale(1) } }
+    @keyframes splashFloat { 0%, 100% { transform: translateY(0) rotate(0deg); } 33% { transform: translateY(-12px) rotate(3deg); } 66% { transform: translateY(6px) rotate(-2deg); } }
+    @keyframes splashPulse { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 0.8; transform: scale(1.04); } }
+    @keyframes splashSlideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes splashFadeOut { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes editorFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .ambient-card { position: relative; }
+    .ambient-card::before {
+      content: '';
+      position: absolute; inset: 0; pointer-events: none; z-index: 0; border-radius: 24px;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E") repeat;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+    const CANVAS_W = 1000, CANVAS_H = 1400;
+    const AUTO_DATE_EN = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase();
+    const AUTO_DATE_CN = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const T = {
+      en: {
+        about: 'ABOUT', close: 'CLOSE',
+        photo: 'Photo', upload: 'UPLOAD PHOTO / VIDEO', replace: 'REPLACE',
+        title: 'Title', titlePh: 'ENTER TITLE...',
+        date: 'Date', datePh: 'leave empty to hide', reset: 'RESET',
+        split: 'Split ratio', fontSize: 'Font size', bgColor: 'Background color',
+        fromPhoto: 'from photo', autoExtracted: 'auto-extracted', random: '↻ RANDOM',
+        exportBtn: 'EXPORT AS PNG', exportNote: 'exports at full resolution',
+        exportVideoBtn: 'EXPORT AS VIDEO', exportVideoNote: 'records up to 5 sec · exports as .mp4',
+        recording: 'RECORDING…',
+        saveHint: 'LONG PRESS IMAGE TO SAVE',
+        uploadPrompt: 'UPLOAD A PHOTO OR VIDEO',
+        captionEmpty: `${CANVAS_W} × ${CANVAS_H} · CLICK OR DRAG TO UPLOAD`,
+        captionImage: 'DRAG TO REPOSITION · CLICK TO REPLACE',
+        dragHint: 'DRAG TO REPOSITION', dragHintTouch: 'TWO FINGERS TO REPOSITION',
+        captionImageTouch: 'TWO-FINGER DRAG · TAP TO REPLACE',
+        dropImage: 'DROP FILE',
+        socialLabel: 'Find me on',
+        coffeeLabel: 'Buy me a coffee ☕',
+        coffeeNote: 'If this little tool helped you, you can support me here :)',
+        exportSuccess: 'Exported! Your Color Walk moment +1',
+        exportSuccessNote: 'If you found this helpful, buy me a coffee',
+        aboutText: [
+          "最近刷到网上超火的 Color Walk 旅游记录方式，真的太有氛围感了！",
+          "但自己上手才发现，一张张拼图、取色、调文案，用 APP 操作真的好花时间 🥲",
+          "于是突发奇想，用 Claude Code 帮我做了个「一键生成」的网页工具，没想到效果直接戳中我！",
+          "不用再手动折腾，上传照片就能自动生成同款质感封面，太适合懒人了！",
+          "想着或许大家也会需要，就整理分享出来啦～",
+          "希望能帮到喜欢记录旅行的你 ✨ 也欢迎来主页和我一起交流任何东西！"
+        ]
+      },
+      cn: {
+        about: '关于', close: '关闭',
+        photo: '照片 / 视频', upload: '上传照片 / 视频', replace: '重新上传',
+        title: '标题', titlePh: '输入标题…',
+        date: '日期', datePh: '留空则不显示', reset: '重置',
+        split: '分割比例', fontSize: '字体大小', bgColor: '背景颜色',
+        fromPhoto: '来自照片', autoExtracted: '自动提取', random: '↻ 随机',
+        exportBtn: '导出 PNG', exportNote: '按原图分辨率导出',
+        exportVideoBtn: '导出视频', exportVideoNote: '最长录制 5 秒 · 导出为 .mp4',
+        recording: '录制中…',
+        saveHint: '长按图片保存到相册',
+        uploadPrompt: '上传照片或视频',
+        captionEmpty: `${CANVAS_W} × ${CANVAS_H} · 点击或拖拽上传`,
+        captionImage: '拖拽调整位置 · 点击重新上传',
+        dragHint: '拖拽调整位置', dragHintTouch: '双指拖动调整位置',
+        captionImageTouch: '双指拖动 · 点击换图',
+        dropImage: '松开上传',
+        socialLabel: '找到我',
+        coffeeLabel: '请我喝杯咖啡 ☕',
+        coffeeNote: '如果觉得好用，可以请我喝杯咖啡～',
+        exportSuccess: '导出成功！你的 Color Walk 人生时刻 +1',
+        exportSuccessNote: '如果觉得有帮助，也可以请我喝杯咖啡',
+        aboutText: [
+          "最近刷到网上超火的 Color Walk 旅游记录方式，真的太有氛围感了！",
+          "但自己上手才发现，一张张拼图、取色、调文案，用 APP 操作真的好花时间 🥲",
+          "于是突发奇想，用 Claude Code 帮我做了个「一键生成」的网页工具，没想到效果直接戳中我！",
+          "不用再手动折腾，上传照片就能自动生成同款质感封面，太适合懒人了！",
+          "想着或许大家也会需要，就整理分享出来啦～",
+          "希望能帮到喜欢记录旅行的你 ✨ 也欢迎来主页和我一起交流任何东西！"
+        ]
+      }
+    };
+
+    function hexToRgb(hex) {
+      return { r: parseInt(hex.slice(1,3),16), g: parseInt(hex.slice(3,5),16), b: parseInt(hex.slice(5,7),16) };
+    }
+
+    function lerpColor(c1, c2, t) {
+      const a = hexToRgb(c1), b = hexToRgb(c2);
+      const r = Math.round(a.r + (b.r - a.r) * t);
+      const g = Math.round(a.g + (b.g - a.g) * t);
+      const bl = Math.round(a.b + (b.b - a.b) * t);
+      return '#' + [r,g,bl].map(v => Math.min(255,Math.max(0,v)).toString(16).padStart(2,'0')).join('');
+    }
+
+    function pickColorsFromPalette(p) {
+      const all = [p.Vibrant, p.LightVibrant, p.DarkVibrant, p.Muted, p.LightMuted, p.DarkMuted].filter(Boolean);
+      if (all.length === 0) return null;
+      const colors = all.map(s => s.hex);
+      // warm vs cool: r - b
+      const scored = all.map(s => ({ hex: s.hex, warmth: s.rgb ? (s.rgb[0] - s.rgb[2]) : 0 }));
+      const warmest = scored.reduce((a, b) => a.warmth > b.warmth ? a : b);
+      const coolest  = scored.reduce((a, b) => a.warmth < b.warmth ? a : b);
+      return { color1: warmest.hex, color2: coolest.hex, palette: colors };
+    }
+
+    function shiftColor(hex, n) {
+      const { r, g, b } = hexToRgb(hex);
+      const c = v => Math.min(255, Math.max(0, v + n));
+      return `rgb(${c(r)},${c(g)},${c(b)})`;
+    }
+
+    function getTextColor(hex) {
+      try {
+        const { r, g, b } = hexToRgb(hex);
+        return (0.299*r + 0.587*g + 0.114*b)/255 > 0.52 ? '#1c1917' : '#faf9f7';
+      } catch { return '#1c1917'; }
+    }
+
+    function measureLines(ctx, text, maxW) {
+      if (!text.trim()) return [];
+      const words = text.split(' '); let line = '', lines = [];
+      for (const w of words) {
+        const c = line ? line + ' ' + w : w;
+        if (ctx.measureText(c).width > maxW && line) { lines.push(line); line = w; } else line = c;
+      }
+      if (line) lines.push(line);
+      return lines;
+    }
+
+    function drawLines(ctx, lines, x, cy, lh) {
+      const sy = cy - lines.length * lh / 2 + lh / 2;
+      lines.forEach((l, i) => ctx.fillText(l, x, sy + i * lh));
+      return sy + lines.length * lh - lh / 2;
+    }
+
+    function addGrain(ctx, x, y, w, h, intensity) {
+      if (!intensity) return;
+      try {
+        const d = ctx.getImageData(x, y, w, h), px = d.data;
+        for (let i = 0; i < px.length; i += 4) {
+          const n = (Math.random() - 0.5) * intensity;
+          px[i]   = Math.min(255, Math.max(0, px[i]   + n));
+          px[i+1] = Math.min(255, Math.max(0, px[i+1] + n));
+          px[i+2] = Math.min(255, Math.max(0, px[i+2] + n));
+        }
+        ctx.putImageData(d, x, y);
+      } catch(e) {}
+    }
+
+    function drawGradBlock(ctx, color1, color2, ratio, x, y, w, h, grain) {
+      const g = ctx.createLinearGradient(x, y, x, y + h);
+      // ratio: 0 = pure color1, 1 = pure color2
+      const bottomColor = lerpColor(color1, color2, ratio);
+      g.addColorStop(0, color1);
+      g.addColorStop(1, bottomColor);
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, w, h);
+      addGrain(ctx, x, y, w, h, grain);
+    }
+
+    function ColorPicker({ color, onChange, onRandom, palette, label, randomLabel }) {
+      return (
+        <div className="flex items-start gap-3">
+          <div className="flex items-center gap-3 flex-1">
+            <div className="relative flex-shrink-0" style={{width:'28px', height:'20px', borderRadius:'8px', border:'1px solid #E8E5E0', overflow:'hidden'}}>
+              <input type="color" value={color} onChange={e => onChange(e.target.value)}
+                className="absolute -inset-1 opacity-0 cursor-pointer"
+                style={{ width: 'calc(100% + 8px)', height: 'calc(100% + 8px)' }} />
+              <div className="absolute inset-0 pointer-events-none" style={{ background: color }} />
+            </div>
+            <span style={{fontSize:'12px', color:'#2D2D2D', fontFamily:'"Courier Prime", monospace', letterSpacing:'0.05em'}}>{color.toUpperCase()}</span>
+            {label && <span style={{fontSize:'11px', color:'#B0B0B0'}}>{label}</span>}
+          </div>
+          {onRandom && (
+            <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+              <button onClick={onRandom}
+                style={{fontSize:'11px', color:'#7A7A7A', background:'none', border:'none', cursor:'pointer', transition:'color 0.2s'}}
+                onMouseEnter={e => e.target.style.color='#F26451'}
+                onMouseLeave={e => e.target.style.color='#7A7A7A'}>
+                {randomLabel || '↻ RANDOM'}
+              </button>
+              {palette && palette.length > 0 && (
+                <div className="flex gap-1">
+                  {palette.map((c, i) => (
+                    <button key={i} onClick={() => onChange(c)} title={c}
+                      style={{ width:'18px', height:'18px', flexShrink:0, background:c, borderRadius:'6px', border: color === c ? '2px solid #F26451' : '2px solid transparent', cursor:'pointer', transition:'all 0.2s', transform: color === c ? 'scale(1.1)' : 'scale(1)' }}
+                      onMouseEnter={e => { if (color !== c) e.target.style.borderColor = '#D0CDC8'; }}
+                      onMouseLeave={e => { if (color !== c) e.target.style.borderColor = 'transparent'; }} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function Section({ label, value, children }) {
+      return (
+        <div style={{ background: '#FAFAF8', borderRadius: '14px', padding: '11px 14px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+          <div className="flex items-baseline justify-between mb-1.5">
+            <span style={{ fontSize: '10px', fontWeight: 600, color: '#7A7A7A', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</span>
+            {value && <span style={{ fontSize: '11px', color: '#B0B0B0' }}>{value}</span>}
+          </div>
+          {children}
+        </div>
+      );
+    }
+
+    function App() {
+      const [lang, setLang]           = useState('en');
+      const [showAbout, setShowAbout] = useState(false);
+      const [showCoffee, setShowCoffee] = useState(false);
+      const [showExportSuccess, setShowExportSuccess] = useState(false);
+      const [lastExportUrl, setLastExportUrl] = useState(null);
+      const [splashStage, setSplashStage] = useState('intro'); // 'intro' | 'cta' | 'done'
+      const [splashExiting, setSplashExiting] = useState(false);
+
+      const handleSplashDismiss = useCallback(() => {
+        if (splashStage === 'cta' && !splashExiting) {
+          setSplashExiting(true);
+          setTimeout(() => setSplashStage('done'), 1000);
+        }
+      }, [splashStage, splashExiting]);
+
+      useEffect(() => {
+        const t1 = setTimeout(() => setSplashStage('cta'), 2000);
+        return () => clearTimeout(t1);
+      }, []);
+
+      const t = T[lang];
+      const AUTO_DATE = lang === 'en' ? AUTO_DATE_EN : AUTO_DATE_CN;
+
+      const [image, setImage]         = useState(null);
+      const [title, setTitle]         = useState('My colors, My moments');
+      const [split, setSplit]         = useState(0.5);
+      const [fontSize, setFontSize]   = useState(40);
+      const [bgColor1, setBgColor1] = useState('#c9bba8');
+      const [bgColor2, setBgColor2] = useState('#8b9dc3');
+      const [colorRatio, setColorRatio] = useState(0.5);
+      const [palette, setPalette]     = useState([]);
+      const [pan, setPan]             = useState({ x: 0, y: 0 });
+      const [dateText, setDateText]   = useState(AUTO_DATE_EN);
+      const [sourceType, setSourceType] = useState(null);
+      const [isExporting, setIsExporting] = useState(false);
+      const [showPanHint, setShowPanHint] = useState(false);
+      const hintTimer = useRef(null);
+      const [dropHover, setDropHover] = useState(false);
+      const [fontsReady, setFontsReady] = useState(false);
+
+      const [activeTab, setActiveTab] = useState('photo');
+      const [savedImgUrl, setSavedImgUrl] = useState(null);
+      const [photoZoom, setPhotoZoom] = useState(1);
+      const [rotation, setRotation]   = useState(0);
+      const [ambientColors, setAmbientColors] = useState(null);
+
+      const canvasRef = useRef(null), fileRef = useRef(null), wrapRef = useRef(null), sampleRef = useRef(null);
+      const ps = useRef({ on: false, sx: 0, sy: 0, spx: 0, spy: 0, moved: false, inImg: false, dragActive: false });
+      const animRef = useRef(null);
+      const longPressTimer = useRef(null);
+      const touches = useRef({});
+      const lastPinch = useRef(null);
+      const videoElRef = useRef(null); // keeps video element in DOM for iOS canvas drawImage
+
+      const [viewW, setViewW] = useState(window.innerWidth);
+      const [viewH, setViewH] = useState(window.innerHeight);
+      useEffect(() => {
+        const handler = () => { setViewW(window.innerWidth); setViewH(window.innerHeight); };
+        window.addEventListener('resize', handler);
+        return () => window.removeEventListener('resize', handler);
+      }, []);
+      const isMobile = viewW < 640;
+      // Fixed dark workspace height: 57% of usable viewport (below ~54px header)
+      const darkAreaH = isMobile ? Math.max(220, Math.round((viewH - 54) * 0.57)) : 0;
+      // Card occupies 83% of dark area height — slightly larger default, visible dark border
+      const desktopPW = Math.min(380, Math.round((viewW - 220) * 0.37));
+      const PW = isMobile
+        ? Math.round(darkAreaH * 0.83 * CANVAS_W / CANVAS_H)
+        : desktopPW;
+      const PH = Math.round(PW / CANVAS_W * CANVAS_H);
+
+      useEffect(() => { document.fonts.ready.then(() => setFontsReady(true)); }, []);
+      useEffect(() => {
+        const img = new Image();
+        img.onload = async () => {
+          sampleRef.current = img;
+          setImage(img);
+          setSourceType('image');
+          try {
+            const p = await Vibrant.from(img).getPalette();
+            const r = pickColorsFromPalette(p);
+            if (r) {
+              setPalette(r.palette);
+              setBgColor1(r.color1);
+              setBgColor2(r.color2);
+            }
+          } catch (e) {}
+          draw();
+        };
+        img.src = 'sample2.jpg';
+      }, []);
+
+      useEffect(() => {
+        if (palette.length >= 2) {
+          const hexes = palette;
+          const scored = hexes.map(h => {
+            const { r, g, b } = hexToRgb(h);
+            return { hex: h, warmth: r - b };
+          });
+          const warm = scored.reduce((a, b) => a.warmth > b.warmth ? a : b).hex;
+          const cool = scored.reduce((a, b) => a.warmth < b.warmth ? a : b).hex;
+          setAmbientColors({ warm, cool });
+        } else if (palette.length === 1) {
+          setAmbientColors({ warm: palette[0], cool: palette[0] });
+        } else {
+          setAmbientColors(null);
+        }
+      }, [palette]);
+
+      const draw = useCallback(() => {
+        const canvas = canvasRef.current; if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const topH = Math.round(CANVAS_H * split), botH = CANVAS_H - topH;
+        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
+        if (image) {
+          drawGradBlock(ctx, bgColor1, bgColor2, colorRatio, 0, 0, CANVAS_W, topH, 0);
+          // videoWidth/videoHeight for <video>, naturalWidth for <img>
+          const iw = image.videoWidth  || image.naturalWidth  || image.width;
+          const ih = image.videoHeight || image.naturalHeight || image.height;
+          const ia = iw / ih, ta = CANVAS_W / botH;
+          let baseW, baseH;
+          if (ia > ta) { baseH = botH; baseW = baseH * ia; }
+          else          { baseW = CANVAS_W; baseH = baseW / ia; }
+          const dw = baseW * photoZoom, dh = baseH * photoZoom;
+          const dx = (CANVAS_W - dw) / 2 + pan.x;
+          const dy = topH + (botH - dh) / 2 + pan.y;
+          const cx = CANVAS_W / 2, cy = topH + botH / 2;
+          ctx.save();
+          ctx.beginPath(); ctx.rect(0, topH, CANVAS_W, botH); ctx.clip();
+          ctx.translate(cx, cy); ctx.rotate(rotation * Math.PI / 180); ctx.translate(-cx, -cy);
+          ctx.drawImage(image, dx, dy, dw, dh);
+          ctx.restore();
+        } else if (sampleRef.current) {
+          const si = sampleRef.current;
+          const cw = CANVAS_W, ch = CANVAS_H;
+          const ia = si.width / si.height, ta = cw / ch;
+          let dw, dh;
+          if (ia > ta) { dh = ch; dw = dh * ia; }
+          else         { dw = cw; dh = dw / ia; }
+          const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+          ctx.drawImage(si, dx, dy, dw, dh);
+        } else {
+          drawGradBlock(ctx, bgColor1, bgColor2, colorRatio, 0, 0, CANVAS_W, topH, 0);
+          ctx.fillStyle = '#b8afa6';
+          ctx.fillRect(0, topH, CANVAS_W, botH);
+          ctx.fillStyle = 'rgba(28,25,23,0.4)';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.font = '24px "Playfair Display","KaiTi","STKaiti",serif';
+          ctx.fillText(t.uploadPrompt, CANVAS_W / 2, topH + botH / 2);
+        }
+
+        const tc = image ? getTextColor(bgColor1) : (sampleRef.current ? '#ffffff' : getTextColor(bgColor1));
+        ctx.fillStyle = tc; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `400 ${fontSize}px "Playfair Display","KaiTi","STKaiti",serif`;
+        if ('letterSpacing' in ctx) ctx.letterSpacing = '6px';
+        const lines = measureLines(ctx, title || ' ', CANVAS_W * 0.7);
+        const btm = drawLines(ctx, lines, CANVAS_W / 2, topH * 0.46, fontSize * 1.5);
+
+        if (dateText) {
+          const ry = btm + 32;
+          ctx.strokeStyle = tc; ctx.globalAlpha = 0.3; ctx.lineWidth = 0.5;
+          ctx.beginPath(); ctx.moveTo(CANVAS_W/2 - 40, ry); ctx.lineTo(CANVAS_W/2 + 40, ry); ctx.stroke();
+          ctx.globalAlpha = 1;
+
+          ctx.font = `400 ${Math.max(14, Math.round(fontSize * 0.7))}px "Playfair Display","KaiTi","STKaiti",serif`;
+          if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
+          ctx.fillStyle = tc;
+          ctx.globalAlpha = 0.55;
+          ctx.fillText(dateText, CANVAS_W / 2, ry + 28);
+          ctx.globalAlpha = 1;
+          if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+        }
+      }, [image, bgColor1, bgColor2, colorRatio, title, split, fontSize, pan, dateText, lang, photoZoom, rotation]);
+
+      useEffect(() => { draw(); }, [draw, fontsReady]);
+      useEffect(() => { if (splashStage === 'done') { requestAnimationFrame(() => draw()); } }, [splashStage, draw]);
+
+      const load = useCallback(async (file) => {
+        if (!file) return;
+        // Remove any previous video element from DOM
+        if (videoElRef.current) {
+          videoElRef.current.pause();
+          videoElRef.current.remove();
+          videoElRef.current = null;
+        }
+        const url = URL.createObjectURL(file);
+
+        const afterLoad = async (el, type) => {
+          setImage(el); setSourceType(type); setPan({ x: 0, y: 0 }); setPhotoZoom(1); setRotation(0);
+          clearTimeout(hintTimer.current);
+          setShowPanHint(true);
+          hintTimer.current = setTimeout(() => setShowPanHint(false), 2500);
+          try {
+            let src = type === 'video' ? (() => {
+              const tmp = document.createElement('canvas');
+              tmp.width = 200; tmp.height = 200;
+              tmp.getContext('2d').drawImage(el, 0, 0, 200, 200);
+              return tmp;
+            })() : url;
+            const p = await Vibrant.from(src).getPalette();
+            const r = pickColorsFromPalette(p);
+            if (r) {
+              setPalette(r.palette);
+              setBgColor1(r.color1);
+              setBgColor2(r.color2);
+              setColorRatio(0.5);
+            }
+          } catch (e) {}
+        };
+
+        if (file.type.startsWith('image/')) {
+          const img = new Image();
+          img.onload = () => afterLoad(img, 'image');
+          img.src = url;
+        } else if (file.type.startsWith('video/')) {
+          const vid = document.createElement('video');
+          vid.muted = true; vid.loop = true; vid.playsInline = true; vid.preload = 'auto';
+          // iOS Safari requires the video element to be in the DOM for ctx.drawImage to decode frames
+          vid.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+          document.body.appendChild(vid);
+          videoElRef.current = vid;
+          let done = false;
+          const onReady = () => {
+            if (!done) {
+              done = true;
+              vid.play().catch(() => {});
+              afterLoad(vid, 'video');
+            }
+          };
+          vid.addEventListener('loadedmetadata', onReady, { once: true });
+          vid.addEventListener('loadeddata',     onReady, { once: true });
+          vid.addEventListener('canplay',        onReady, { once: true });
+          vid.src = url;
+          vid.load();
+        }
+      }, []);
+
+      const randomFromPalette = useCallback(() => {
+        if (palette.length < 2) return;
+        const i = Math.floor(Math.random() * palette.length);
+        let j = Math.floor(Math.random() * (palette.length - 1));
+        if (j >= i) j++;
+        setBgColor1(palette[Math.min(i, j)]);
+        setBgColor2(palette[Math.max(i, j)]);
+      }, [palette]);
+
+      useEffect(() => {
+        cancelAnimationFrame(animRef.current);
+        if (sourceType !== 'video' || !image) return;
+        image.play().catch(() => {});
+        const tick = () => { draw(); animRef.current = requestAnimationFrame(tick); };
+        animRef.current = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(animRef.current);
+      }, [sourceType, image, draw]);
+
+      const exportVideo = useCallback(async () => {
+        if (!image || sourceType !== 'video' || isExporting) return;
+        setIsExporting(true);
+        const durationSec = Math.min(image.duration || 5, 5);
+        const stem = (title || 'cover').trim().replace(/\s+/g, '-').toLowerCase();
+        image.currentTime = 0;
+        image.play().catch(() => {});
+
+        // Path 1: WebCodecs + mp4-muxer → real MP4 (Chrome/Edge)
+        if (window.Mp4Muxer && typeof VideoEncoder !== 'undefined') {
+          try {
+            const { Muxer, ArrayBufferTarget } = window.Mp4Muxer;
+            const target = new ArrayBufferTarget();
+            const muxer = new Muxer({
+              target,
+              video: { codec: 'avc', width: CANVAS_W, height: CANVAS_H },
+              fastStart: 'in-memory',
+            });
+            const encoder = new VideoEncoder({
+              output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+              error: console.error,
+            });
+            encoder.configure({
+              codec: 'avc1.42001f', width: CANVAS_W, height: CANVAS_H,
+              bitrate: 8_000_000, framerate: 30,
+            });
+            const fps = 30, total = Math.round(durationSec * fps);
+            await new Promise(resolve => {
+              let i = 0;
+              const id = setInterval(() => {
+                if (i >= total) { clearInterval(id); resolve(); return; }
+                const frame = new VideoFrame(canvasRef.current, {
+                  timestamp: Math.round(i / fps * 1_000_000),
+                });
+                encoder.encode(frame, { keyFrame: i % fps === 0 });
+                frame.close();
+                i++;
+              }, 1000 / fps);
+            });
+            await encoder.flush();
+            muxer.finalize();
+            const blob = new Blob([target.buffer], { type: 'video/mp4' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = stem + '.mp4';
+            a.click();
+            setIsExporting(false);
+            return;
+          } catch(e) { console.warn('WebCodecs failed, falling back', e); }
+        }
+
+        // Path 2: MediaRecorder → MP4 on Safari, WebM elsewhere
+        const stream = canvasRef.current.captureStream(30);
+        const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+        const recorder = new MediaRecorder(stream, { mimeType });
+        const chunks = [];
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: mimeType });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = stem + (mimeType.includes('mp4') ? '.mp4' : '.webm');
+          a.click();
+          setIsExporting(false);
+        };
+        recorder.start();
+        setTimeout(() => recorder.stop(), durationSec * 1000);
+      }, [image, sourceType, isExporting, title]);
+
+      // Clamp pan so photo never exposes empty space (both axes, zoom-aware)
+      const clampPan = useCallback((nx, ny, zoom) => {
+        if (!image) return { x: nx, y: ny };
+        const iw = image.videoWidth  || image.naturalWidth  || image.width;
+        const ih = image.videoHeight || image.naturalHeight || image.height;
+        const botH = CANVAS_H - Math.round(CANVAS_H * split);
+        const ta = CANVAS_W / botH, ia = iw / ih;
+        let sw, sh;
+        if (ia > ta) { sh = ih / zoom; sw = sh * ta; }
+        else          { sw = iw / zoom; sh = sw / ta; }
+        const maxX = (iw - sw) / 2;
+        const maxY = (ih - sh) / 2;
+        return {
+          x: Math.max(-maxX, Math.min(maxX, nx)),
+          y: Math.max(-maxY, Math.min(maxY, ny)),
+        };
+      }, [image, split]);
+
+      const onPointerDown = (e) => {
+        if (e.button !== 0 && e.pointerType === 'mouse') return;
+        touches.current[e.pointerId] = { x: e.clientX, y: e.clientY };
+        const n = Object.keys(touches.current).length;
+
+        if (n === 1) {
+          ps.current = { sx: e.clientX, sy: e.clientY, spx: pan.x, spy: pan.y, moved: false, dragActive: false };
+          if (image) {
+            if (e.pointerType === 'mouse') {
+              const rect = wrapRef.current.getBoundingClientRect();
+              if ((e.clientY - rect.top) / rect.height >= split) {
+                ps.current.dragActive = true;
+                e.preventDefault();
+              }
+            } else {
+              ps.current.dragActive = true;
+            }
+          }
+        } else if (n === 2) {
+          ps.current = { moved: true };
+          const pts = Object.values(touches.current);
+          lastPinch.current = {
+            dist: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
+            startZoom: photoZoom,
+            prevMidX: (pts[0].x + pts[1].x) / 2,
+            prevMidY: (pts[0].y + pts[1].y) / 2,
+            initialAngle: Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * 180 / Math.PI,
+            startRotation: rotation,
+          };
+        }
+      };
+
+      const onPointerMove = (e) => {
+        if (!(e.pointerId in touches.current)) return;
+        touches.current[e.pointerId] = { x: e.clientX, y: e.clientY };
+        const n = Object.keys(touches.current).length;
+
+        if (n === 2 && lastPinch.current && image) {
+          const pts = Object.values(touches.current);
+          const newDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+          const newMidX = (pts[0].x + pts[1].x) / 2;
+          const newMidY = (pts[0].y + pts[1].y) / 2;
+
+          // Pinch → zoom freely, no minimum cover constraint
+          const newZoom = Math.max(0.05, Math.min(10,
+            lastPinch.current.startZoom * newDist / lastPinch.current.dist));
+          setPhotoZoom(newZoom);
+
+          // Rotate → continuous, no snap
+          const currentAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * 180 / Math.PI;
+          setRotation(lastPinch.current.startRotation + (currentAngle - lastPinch.current.initialAngle));
+
+          // Drag midpoint → pan in canvas pixel space
+          const dmx = newMidX - lastPinch.current.prevMidX;
+          const dmy = newMidY - lastPinch.current.prevMidY;
+          if (image && (Math.abs(dmx) > 0.3 || Math.abs(dmy) > 0.3)) {
+            const s = CANVAS_W / PW;
+            setPan(prev => ({ x: prev.x + dmx * s, y: prev.y + dmy * s }));
+          }
+          lastPinch.current.prevMidX = newMidX;
+          lastPinch.current.prevMidY = newMidY;
+          return;
+        }
+
+        if (!ps.current) return;
+        const dx = e.clientX - ps.current.sx, dy = e.clientY - ps.current.sy;
+        if (Math.hypot(dx, dy) > 8) ps.current.moved = true;
+
+        if (ps.current.dragActive && image) {
+          const s = CANVAS_W / PW;
+          setPan({ x: ps.current.spx + dx * s, y: ps.current.spy + dy * s });
+        }
+      };
+
+      const onPointerUp = (e) => {
+        delete touches.current[e.pointerId];
+        const n = Object.keys(touches.current).length;
+        if (n < 2) lastPinch.current = null;
+        if (n === 0 && ps.current) {
+          if (!ps.current.moved) fileRef.current?.click();
+          ps.current = null;
+        }
+      };
+
+      const onPointerCancel = (e) => {
+        delete touches.current[e.pointerId];
+        if (Object.keys(touches.current).length === 0) {
+          ps.current = null; lastPinch.current = null;
+        }
+      };
+
+      const exportPng = useCallback(() => {
+        const filename = (title || 'cover').trim().replace(/\s+/g, '-').toLowerCase() + '.png';
+
+        // Scale export canvas to match original image resolution (no downscaling)
+        const topH_c = Math.round(CANVAS_H * split);
+        const botH_c = CANVAS_H - topH_c;
+        let scale = 1;
+        if (image) {
+          const iw = image.videoWidth || image.naturalWidth || image.width;
+          const ih = image.videoHeight || image.naturalHeight || image.height;
+          if (iw && ih) {
+            const ia = iw / ih, ta = CANVAS_W / botH_c;
+            const baseW = ia > ta ? botH_c * ia : CANVAS_W;
+            scale = Math.min(3, Math.max(1, iw / (baseW * photoZoom)));
+          }
+        }
+
+        const EW = Math.round(CANVAS_W * scale);
+        const EH = Math.round(CANVAS_H * scale);
+        const topH = Math.round(EH * split);
+        const botH = EH - topH;
+
+        const ec = document.createElement('canvas');
+        ec.width = EW; ec.height = EH;
+        const ctx = ec.getContext('2d');
+
+        ctx.fillStyle = bgColor1;
+        ctx.fillRect(0, 0, EW, EH);
+
+        if (image) {
+          drawGradBlock(ctx, bgColor1, bgColor2, colorRatio, 0, 0, EW, topH, 0);
+          const iw = image.videoWidth || image.naturalWidth || image.width;
+          const ih = image.videoHeight || image.naturalHeight || image.height;
+          const ia = iw / ih, ta = CANVAS_W / botH_c;
+          let baseW, baseH;
+          if (ia > ta) { baseH = botH_c; baseW = baseH * ia; }
+          else          { baseW = CANVAS_W; baseH = baseW / ia; }
+          const dw = baseW * photoZoom * scale, dh = baseH * photoZoom * scale;
+          const dx = (EW - dw) / 2 + pan.x * scale;
+          const dy = topH + (botH - dh) / 2 + pan.y * scale;
+          const cx = EW / 2, cy = topH + botH / 2;
+          ctx.save();
+          ctx.beginPath(); ctx.rect(0, topH, EW, botH); ctx.clip();
+          ctx.translate(cx, cy); ctx.rotate(rotation * Math.PI / 180); ctx.translate(-cx, -cy);
+          ctx.drawImage(image, dx, dy, dw, dh);
+          ctx.restore();
+        } else if (sampleRef.current) {
+          const si = sampleRef.current;
+          const cw = EW, ch = EH;
+          const ia = si.width / si.height, ta = cw / ch;
+          let dw, dh;
+          if (ia > ta) { dh = ch; dw = dh * ia; }
+          else         { dw = cw; dh = dw / ia; }
+          const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+          ctx.drawImage(si, dx, dy, dw, dh);
+        } else {
+          drawGradBlock(ctx, bgColor1, bgColor2, colorRatio, 0, 0, EW, topH, 0);
+          ctx.fillStyle = '#b8afa6';
+          ctx.fillRect(0, topH, EW, botH);
+        }
+
+        const tc = image ? getTextColor(bgColor1) : (sampleRef.current ? '#ffffff' : getTextColor(bgColor1));
+        const fs = Math.round(fontSize * scale);
+        ctx.fillStyle = tc; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        if (sampleRef.current && !image) { ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = Math.round(4 * scale); }
+        ctx.font = `400 ${fs}px "Playfair Display","KaiTi","STKaiti",serif`;
+        if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(6 * scale)}px`;
+        const lines = measureLines(ctx, title || ' ', EW * 0.7);
+        const btm = drawLines(ctx, lines, EW / 2, topH * 0.46, Math.round(fs * 1.5));
+
+        if (dateText) {
+          const ry = btm + Math.round(32 * scale);
+          ctx.strokeStyle = tc; ctx.globalAlpha = 0.3; ctx.lineWidth = Math.max(0.5, scale * 0.5);
+          ctx.beginPath();
+          ctx.moveTo(EW/2 - Math.round(40*scale), ry);
+          ctx.lineTo(EW/2 + Math.round(40*scale), ry);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          const dfs = Math.round(Math.max(14, Math.round(fontSize * 0.7)) * scale);
+          ctx.font = `400 ${dfs}px "Playfair Display","KaiTi","STKaiti",serif`;
+          if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(4 * scale)}px`;
+          ctx.fillStyle = tc; ctx.globalAlpha = 0.55;
+          ctx.fillText(dateText, EW / 2, ry + Math.round(28 * scale));
+          ctx.globalAlpha = 1;
+          if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+          if (sampleRef.current && !image) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; }
+        }
+
+        ec.toBlob(async (blob) => {
+          const file = new File([blob], filename, { type: 'image/png' });
+          if (isMobile && navigator.canShare?.({ files: [file] })) {
+            try {
+              await navigator.share({ files: [file], title: filename });
+            } catch (e) {
+              if (e.name !== 'AbortError') setSavedImgUrl(URL.createObjectURL(blob));
+            }
+          } else if (isMobile) {
+            setSavedImgUrl(URL.createObjectURL(blob));
+          } else {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setLastExportUrl(url);
+            setShowExportSuccess(true);
+          }
+        }, 'image/png');
+      }, [title, isMobile, image, split, bgColor1, bgColor2, colorRatio, fontSize, photoZoom, rotation, pan, dateText]);
+
+      if (splashStage !== 'done') {
+        return (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden"
+            style={{ fontFamily: "'Playfair Display','KaiTi','STKaiti',serif", background:'#1a1a2e', animation: splashExiting ? 'splashFadeOut 1s ease forwards' : 'none' }}
+            onWheel={handleSplashDismiss}
+            onTouchMove={handleSplashDismiss}>
+
+            {/* Sample image as background — show bottom portion */}
+            <div style={{ position:'absolute', inset:0, backgroundImage:'url(sample2.jpg)', backgroundSize:'cover', backgroundPosition:'bottom', opacity:0.85 }} />
+
+            {/* Gradient overlay */}
+            <div style={{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(26,22,34,0.25) 0%, rgba(20,18,30,0.45) 50%, rgba(30,22,28,0.55) 100%)' }} />
+
+            {/* Decorative blobs */}
+            <div style={{ position:'absolute', top:'-15%', right:'-20%', width:'60vw', height:'60vw', maxWidth:'500px', maxHeight:'500px', borderRadius:'50%', background:'radial-gradient(circle, rgba(200,160,140,0.2) 0%, transparent 70%)', animation:'splashFloat 8s ease-in-out infinite' }} />
+            <div style={{ position:'absolute', bottom:'-10%', left:'-15%', width:'50vw', height:'50vw', maxWidth:'400px', maxHeight:'400px', borderRadius:'50%', background:'radial-gradient(circle, rgba(140,140,180,0.25) 0%, transparent 70%)', animation:'splashFloat 10s ease-in-out infinite 1s' }} />
+
+            <div style={{ textAlign:'center', zIndex:1, padding:'0 32px' }}>
+              <div style={{ fontSize:'44px', marginBottom:'16px', letterSpacing:'2px', animation:'splashFloat 6s ease-in-out infinite' }}>
+                🎨
+              </div>
+              <h1 style={{ fontSize: isMobile ? '28px' : '36px', fontWeight:700, color:'#fff', marginBottom:'12px', letterSpacing:'0.06em', textShadow:'0 2px 20px rgba(0,0,0,0.3)' }}>
+                My Color Walk
+              </h1>
+              <p style={{ fontSize: isMobile ? '14px' : '16px', color:'rgba(255,255,255,0.7)', letterSpacing:'0.08em', lineHeight:1.6 }}>
+                your moments, your colors.
+              </p>
+
+              {splashStage === 'cta' && (
+                <div style={{ animation:'splashSlideUp 0.6s ease', marginTop:'48px' }}>
+                  <button onClick={handleSplashDismiss}
+                    style={{ background:'rgba(255,255,255,0.15)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.25)', color:'#fff', padding:'14px 36px', fontSize:'16px', fontFamily:'inherit', letterSpacing:'0.06em', cursor:'pointer', borderRadius:'50px', transition:'all 0.25s' }}
+                    onMouseEnter={e => { e.target.style.background='rgba(255,255,255,0.25)'; e.target.style.transform='scale(1.03)'; }}
+                    onMouseLeave={e => { e.target.style.background='rgba(255,255,255,0.15)'; e.target.style.transform='scale(1)'; }}>
+                    Let's try your color walk! ✦
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ position:'absolute', bottom:'32px', color:'rgba(255,255,255,0.3)', fontSize:'11px', letterSpacing:'0.1em' }}>
+              scroll or click to start
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif", background: ambientColors ? `linear-gradient(135deg, ${ambientColors.warm}18 0%, ${ambientColors.cool}18 100%), #F8F5F0` : '#F8F5F0', minHeight: isMobile ? undefined : '100vh', animation: 'editorFadeIn 0.8s ease', ...(isMobile ? { height: viewH, overflow: 'hidden' } : {}) }}>
+
+          {savedImgUrl && (
+            <div className="fixed inset-0 z-50 flex flex-col" style={{background:'rgba(30,30,30,0.95)'}}>
+              <div className="flex items-center justify-between px-5 py-4">
+                <p style={{fontSize:'11px', color:'rgba(255,255,255,0.5)', letterSpacing:'0.05em'}}>{t.saveHint}</p>
+                <button onClick={() => { URL.revokeObjectURL(savedImgUrl); setSavedImgUrl(null); }}
+                  style={{fontSize:'11px', color:'#fff', background:'none', border:'none', cursor:'pointer'}}>{t.close}</button>
+              </div>
+              <div className="flex-1 flex items-center justify-center px-4 pb-8">
+                <img src={savedImgUrl} alt="cover"
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              </div>
+            </div>
+          )}
+
+          {showAbout && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center"
+              style={{background:'rgba(45,45,45,0.2)'}}
+              onClick={() => setShowAbout(false)}>
+              <div className="max-w-lg w-full mx-6 relative flex flex-col"
+                style={{ maxHeight: '85vh', background:'#FFFFFF', borderRadius:'20px', boxShadow:'0 4px 24px rgba(0,0,0,0.06)' }}
+                onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-8 pt-7 pb-3 flex-shrink-0">
+                  <span style={{fontSize:'11px', fontWeight:600, color:'#7A7A7A', letterSpacing:'0.1em', textTransform:'uppercase'}}>{t.about}</span>
+                  <button onClick={() => setShowAbout(false)}
+                    style={{fontSize:'11px', color:'#7A7A7A', background:'none', border:'none', cursor:'pointer', transition:'color 0.2s', fontWeight:500}}
+                    onMouseEnter={e => e.target.style.color='#2D2D2D'}
+                    onMouseLeave={e => e.target.style.color='#7A7A7A'}>
+                    {t.close}
+                  </button>
+                </div>
+                <div className="overflow-y-auto px-8 pt-4 pb-8 flex flex-col gap-4 text-sm leading-relaxed" style={{color:'#2D2D2D'}}>
+                  {t.aboutText.map((p, i) => <p key={i} style={{whiteSpace:'pre-line'}}>{p}</p>)}
+
+                  {/* Social links */}
+                  <div style={{paddingTop:'12px', borderTop:'1px solid #F0EDE8', display:'flex', alignItems:'center', gap:'16px'}}>
+                    <a href="https://www.xiaohongshu.com/user/profile/5d2f19d6000000001101bb0a"
+                      target="_blank" rel="noopener noreferrer" title="小红书"
+                      style={{color:'#7A7A7A', textDecoration:'none', display:'inline-flex', alignItems:'center', gap:'6px', transition:'color 0.2s'}}
+                      onMouseEnter={e => e.target.style.color='#F26451'}
+                      onMouseLeave={e => e.target.style.color='#7A7A7A'}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="currentColor" strokeWidth="1.6"/>
+                        <g transform="translate(2,2) scale(0.8333)">
+                        <path fillRule="evenodd" fill="#FF2442" d="M22.405 9.879c.002.016.01.02.07.019h.725a.797.797 0 0 0 .78-.972.794.794 0 0 0-.884-.618.795.795 0 0 0-.692.794c0 .101-.002.666.001.777zm-11.509 4.808c-.203.001-1.353.004-1.685.003a2.528 2.528 0 0 1-.766-.126.025.025 0 0 0-.03.014L7.7 16.127a.025.025 0 0 0 .01.032c.111.06.336.124.495.124.66.01 1.32.002 1.981 0 .01 0 .02-.006.023-.015l.712-1.545a.025.025 0 0 0-.024-.036zM.477 9.91c-.071 0-.076.002-.076.01a.834.834 0 0 0-.01.08c-.027.397-.038.495-.234 3.06-.012.24-.034.389-.135.607-.026.057-.033.042.003.112.046.092.681 1.523.787 1.74.008.015.011.02.017.02.008 0 .033-.026.047-.044.147-.187.268-.391.371-.606.306-.635.44-1.325.486-1.706.014-.11.021-.22.03-.33l.204-2.616.022-.293c.003-.029 0-.033-.03-.034zm7.203 3.757a1.427 1.427 0 0 1-.135-.607c-.004-.084-.031-.39-.235-3.06a.443.443 0 0 0-.01-.082c-.004-.011-.052-.008-.076-.008h-1.48c-.03.001-.034.005-.03.034l.021.293c.076.982.153 1.964.233 2.946.05.4.186 1.085.487 1.706.103.215.223.419.37.606.015.018.037.051.048.049.02-.003.742-1.642.804-1.765.036-.07.03-.055.003-.112zm3.861-.913h-.872a.126.126 0 0 1-.116-.178l1.178-2.625a.025.025 0 0 0-.023-.035l-1.318-.003a.148.148 0 0 1-.135-.21l.876-1.954a.025.025 0 0 0-.023-.035h-1.56c-.01 0-.02.006-.024.015l-.926 2.068c-.085.169-.314.634-.399.938a.534.534 0 0 0-.02.191.46.46 0 0 0 .23.378.981.981 0 0 0 .46.119h.59c.041 0-.688 1.482-.834 1.972a.53.53 0 0 0-.023.172.465.465 0 0 0 .23.398c.15.092.342.12.475.12l1.66-.001c.01 0 .02-.006.023-.015l.575-1.28a.025.025 0 0 0-.024-.035zm-6.93-4.937H3.1a.032.032 0 0 0-.034.033c0 1.048-.01 2.795-.01 6.829 0 .288-.269.262-.28.262h-.74c-.04.001-.044.004-.04.047.001.037.465 1.064.555 1.263.01.02.03.033.051.033.157.003.767.009.938-.014.153-.02.3-.06.438-.132.3-.156.49-.419.595-.765.052-.172.075-.353.075-.533.002-2.33 0-4.66-.007-6.991a.032.032 0 0 0-.032-.032zm11.784 6.896c0-.014-.01-.021-.024-.022h-1.465c-.048-.001-.049-.002-.05-.049v-4.66c0-.072-.005-.07.07-.07h.863c.08 0 .075.004.075-.074V8.393c0-.082.006-.076-.08-.076h-3.5c-.064 0-.075-.006-.075.073v1.445c0 .083-.006.077.08.077h.854c.075 0 .07-.004.07.07v4.624c0 .095.008.084-.085.084-.37 0-1.11-.002-1.304 0-.048.001-.06.03-.06.03l-.697 1.519s-.014.025-.008.036c.006.01.013.008.058.008 1.748.003 3.495.002 5.243.002.03-.001.034-.006.035-.033v-1.539zm4.177-3.43c0 .013-.007.023-.02.024-.346.006-.692.004-1.037.004-.014-.002-.022-.01-.022-.024-.005-.434-.007-.869-.01-1.303 0-.072-.006-.071.07-.07l.733-.003c.041 0 .081.002.12.015.093.025.16.107.165.204.006.431.002 1.153.001 1.153zm2.67.244a1.953 1.953 0 0 0-.883-.222h-.18c-.04-.001-.04-.003-.042-.04V10.21c0-.132-.007-.263-.025-.394a1.823 1.823 0 0 0-.153-.53 1.533 1.533 0 0 0-.677-.71 2.167 2.167 0 0 0-1-.258c-.153-.003-.567 0-.72 0-.07 0-.068.004-.068-.065V7.76c0-.031-.01-.041-.046-.039H17.93s-.016 0-.023.007c-.006.006-.008.012-.008.023v.546c-.008.036-.057.015-.082.022h-.95c-.022.002-.028.008-.03.032v1.481c0 .09-.004.082.082.082h.913c.082 0 .072.128.072.128V11.19s.003.117-.06.117h-1.482c-.068 0-.06.082-.06.082v1.445s-.01.068.064.068h1.457c.082 0 .076-.006.076.079v3.225c0 .088-.007.081.082.081h1.43c.09 0 .082.007.082-.08v-3.27c0-.029.006-.035.033-.035l2.323-.003c.098 0 .191.02.28.061a.46.46 0 0 1 .274.407c.008.395.003.79.003 1.185 0 .259-.107.367-.33.367h-1.218c-.023.002-.029.008-.028.033.184.437.374.871.57 1.303a.045.045 0 0 0 .04.026c.17.005.34.002.51.003.15-.002.517.004.666-.01a2.03 2.03 0 0 0 .408-.075c.59-.18.975-.698.976-1.313v-1.981c0-.128-.01-.254-.034-.38 0 .078-.029-.641-.724-.998z"/>
+                        </g>
+                      </svg>
+                      <span className="text-xs tracking-widest">小红书主页</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Export success modal */}
+          {showExportSuccess && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-6"
+              style={{background:'rgba(45,45,45,0.25)', animation:'cdFadeIn 0.18s ease'}}
+              onClick={() => { setShowExportSuccess(false); if (lastExportUrl) { URL.revokeObjectURL(lastExportUrl); setLastExportUrl(null); } }}>
+              <div onClick={e => e.stopPropagation()}
+                style={{background:'#FFFFFF', borderRadius:'20px', maxWidth:'360px', width:'100%',
+                  padding:'32px 28px 28px', boxShadow:'0 4px 24px rgba(0,0,0,0.06)',
+                  animation:'cdScaleIn 0.18s ease', textAlign:'center'}}>
+                <div style={{fontSize:'40px', marginBottom:'16px'}}>✨</div>
+                <p style={{fontSize:'15px', color:'#2D2D2D', fontWeight:600, marginBottom:'8px', fontFamily:'inherit'}}>
+                  {t.exportSuccess}
+                </p>
+                <a href="#" onClick={e => { e.preventDefault(); alert('收款码'); }}
+                  style={{fontSize:'11px', color:'#B0B0B0', textDecoration:'none', borderBottom:'1px solid #E8E5E0', paddingBottom:'2px', cursor:'pointer', transition:'color 0.2s'}}
+                  onMouseEnter={e => e.target.style.color='#F26451'}
+                  onMouseLeave={e => e.target.style.color='#B0B0B0'}>
+                  {t.exportSuccessNote} ☕
+                </a>
+                <button onClick={() => { setShowExportSuccess(false); if (lastExportUrl) { URL.revokeObjectURL(lastExportUrl); setLastExportUrl(null); } }}
+                  style={{display:'block', margin:'20px auto 0', background:'#2D2D2D', color:'#FFFFFF', border:'none', borderRadius:'20px',
+                    padding:'10px 28px', fontFamily:'inherit', fontSize:'12px', fontWeight:500, letterSpacing:'0.04em', cursor:'pointer', transition:'all 0.2s'}}
+                  onMouseEnter={e => e.target.style.background='#3D3D3D'}
+                  onMouseLeave={e => e.target.style.background='#2D2D2D'}>
+                  {t.close}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <header style={{borderBottom:'1px solid #E8E5E0', padding:'14px 0'}} className="px-4 sm:px-12">
+            <div className="max-w-6xl mx-auto flex items-center justify-between" style={{position:'relative'}}>
+              {/* Left: language switcher */}
+              <div className="flex items-center gap-1" style={{fontSize:'12px', flex:'0 0 80px'}}>
+                <button onClick={() => setLang('en')}
+                  style={{transition:'color 0.2s', color: lang==='en' ? '#2D2D2D' : '#B0B0B0', fontWeight: lang==='en' ? 600 : 400, background:'none', border:'none', cursor:'pointer'}}>
+                  EN
+                </button>
+                <span style={{color:'#D0D0D0'}}>/</span>
+                <button onClick={() => setLang('cn')}
+                  style={{transition:'color 0.2s', color: lang==='cn' ? '#2D2D2D' : '#B0B0B0', fontWeight: lang==='cn' ? 600 : 400, background:'none', border:'none', cursor:'pointer'}}>
+                  CN
+                </button>
+              </div>
+
+              {/* Center: logo + title */}
+              <div className="flex items-center gap-2.5" style={{position:'absolute', left:'50%', transform:'translateX(-50%)'}}>
+                <svg width="34" height="34" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <linearGradient id="mcwGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#f4b0c1" />
+                      <stop offset="35%" stopColor="#e0a8c8" />
+                      <stop offset="65%" stopColor="#a0c0e0" />
+                      <stop offset="100%" stopColor="#7aacd0" />
+                    </linearGradient>
+                  </defs>
+                  <circle cx="18" cy="18" r="16" fill="url(#mcwGrad)" opacity="0.9" />
+                  <circle cx="18" cy="18" r="8" fill="#f5f0e8" opacity="0.7" />
+                  <circle cx="14" cy="16" r="2.5" fill="url(#mcwGrad)" opacity="0.6" />
+                </svg>
+                <span style={{fontSize:'18px', fontWeight:700, color:'#2D2D2D', letterSpacing:'-0.02em'}}>My Color Walk</span>
+              </div>
+
+              {/* Right: about */}
+              <div style={{flex:'0 0 80px', textAlign:'right'}}>
+                <button onClick={() => setShowAbout(true)}
+                  style={{fontSize:'12px', color:'#7A7A7A', background:'none', border:'none', cursor:'pointer', transition:'color 0.2s'}}
+                  onMouseEnter={e => e.target.style.color='#2D2D2D'}
+                  onMouseLeave={e => e.target.style.color='#7A7A7A'}>
+                  {t.about}
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <div className="max-w-6xl mx-auto px-3 sm:px-8 pt-3 sm:pt-4 pb-8">
+            <div className="ambient-card" style={{
+                background:'#FFFFFF', borderRadius:'24px', boxShadow:'0 2px 20px rgba(0,0,0,0.04)', padding:'24px 22px 24px 28px', overflow:'hidden'
+              }}>
+              <div className="flex flex-col sm:flex-row sm:gap-8 items-start" style={{position:'relative', zIndex:1}}>
+
+            {/* always-present hidden file input so canvas tap always works */}
+            <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden"
+              onChange={e => load(e.target.files[0])} />
+
+            <div className="w-full sm:w-[45%] sm:flex-shrink-0 flex flex-col sm:items-center sm:gap-3">
+
+              {/* Mobile: dark canvas zone — fixed height workspace, card floats centered */}
+              {isMobile ? (
+                <div className="w-full bg-stone-900 flex items-center justify-center overflow-hidden"
+                  style={{ height: darkAreaH }}>
+                  <div ref={wrapRef}
+                    className={`relative overflow-hidden select-none ${dropHover ? 'ring-1 ring-white/30' : ''}`}
+                    style={{ width: PW, height: PH, touchAction: 'none', boxShadow: '0 8px 32px rgba(0,0,0,0.55)' }}
+                    onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+                    onPointerLeave={onPointerCancel} onPointerCancel={onPointerCancel}
+                    onDrop={e => { e.preventDefault(); setDropHover(false); load(e.dataTransfer.files[0]); }}
+                    onDragOver={e => { e.preventDefault(); setDropHover(true); }}
+                    onDragLeave={() => setDropHover(false)}>
+                    <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H}
+                      style={{ width: '100%', height: '100%', display: 'block' }} />
+                    {showPanHint && image && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-end pointer-events-none"
+                        style={{ paddingBottom: `${Math.round(PH * 0.28)}px` }}>
+                        <div className="bg-stone-900/60 text-white text-xs px-4 py-2 tracking-widest"
+                          style={{ letterSpacing: '0.12em' }}>
+                          {t.dragHintTouch}
+                        </div>
+                      </div>
+                    )}
+                    {dropHover && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-stone-900/20">
+                        <span className="text-white text-xs tracking-widest">{t.dropImage}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Desktop: canvas card */
+                <div ref={wrapRef}
+                  className={`relative overflow-hidden select-none ${image ? 'cursor-grab' : 'cursor-pointer'} ${dropHover ? 'ring-1 ring-stone-400' : ''}`}
+                  style={{ width: PW, height: PH, background: '#FFFFFF', borderRadius: '20px', touchAction: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
+                  onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+                  onPointerLeave={onPointerCancel} onPointerCancel={onPointerCancel}
+                  onDrop={e => { e.preventDefault(); setDropHover(false); load(e.dataTransfer.files[0]); }}
+                  onDragOver={e => { e.preventDefault(); setDropHover(true); }}
+                  onDragLeave={() => setDropHover(false)}>
+                  <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H}
+                    style={{ width: '100%', height: '100%', display: 'block' }} />
+                  {showPanHint && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-end pointer-events-none"
+                      style={{ paddingBottom: `${Math.round(PH * 0.28)}px` }}>
+                      <div style={{background:'rgba(45,45,45,0.7)', color:'#fff', fontSize:'11px', padding:'6px 16px', borderRadius:'20px', letterSpacing:'0.08em'}}>
+                        {t.dragHint}
+                      </div>
+                    </div>
+                  )}
+                  {dropHover && (
+                    <div className="absolute inset-0 flex items-center justify-center" style={{background:'rgba(248,245,240,0.6)'}}>
+                      <span style={{fontSize:'12px', color:'#2D2D2D', fontWeight:500}}>{t.dropImage}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Mobile: export row between dark area and tab bar */}
+              {isMobile && (
+                <div className="px-5 py-3 flex items-center justify-between w-full" style={{borderBottom:'1px solid #E8E5E0', background:'#F8F5F0'}}>
+                  <span style={{fontSize:'11px', color:'#B0B0B0', letterSpacing:'0.04em'}}>
+                    {sourceType === 'video' ? t.exportVideoNote : t.exportNote}
+                  </span>
+                  <button onClick={sourceType === 'video' ? exportVideo : exportPng} disabled={isExporting}
+                    style={{padding:'10px 22px', color:'#FFFFFF', fontSize:'11px', fontWeight:600, letterSpacing:'0.05em', background:'#F26451', border:'none', borderRadius:'20px', cursor:'pointer', transition:'all 0.2s', opacity: isExporting ? 0.5 : 1}}>
+                    {isExporting ? t.recording : sourceType === 'video' ? t.exportVideoBtn : t.exportBtn}
+                  </button>
+                </div>
+              )}
+
+              {/* Desktop caption */}
+              {!isMobile && (
+                <p style={{fontSize:'11px', color:'#B0B0B0', letterSpacing:'0.04em'}}>
+                  {image ? t.captionImage : t.captionEmpty}
+                </p>
+              )}
+
+              {/* Mobile: tab bar + active control panel */}
+              {isMobile && (() => {
+                const tabs = [
+                  { id: 'photo',    icon: '⊕',  label: t.photo    },
+                  { id: 'title',    icon: 'T',   label: t.title    },
+                  { id: 'date',     icon: '≡',   label: t.date     },
+                  { id: 'split',    icon: '/',   label: t.split    },
+                  { id: 'fontSize', icon: 'Aa',  label: t.fontSize },
+                  { id: 'color',    icon: '■',   label: t.bgColor  },
+                ];
+                return (
+                  <>
+                    <div className="flex w-full" style={{borderTop:'1px solid #E8E5E0', background:'#F8F5F0'}}>
+                      {tabs.map(tab => (
+                        <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                          style={{flex:1, display:'flex', flexDirection:'column', alignItems:'center', padding:'10px 0', gap:'4px', transition:'all 0.2s', color: activeTab === tab.id ? '#F26451' : '#B0B0B0', borderBottom: activeTab === tab.id ? '2px solid #F26451' : '2px solid transparent', background:'none', cursor:'pointer'}}>
+                          <span style={{fontSize:'14px', lineHeight:1, color: tab.id === 'color' ? bgColor1 : 'inherit'}}>
+                            {tab.icon}
+                          </span>
+                          <span style={{ fontSize: '10px', letterSpacing: '0.03em', fontWeight: activeTab === tab.id ? 600 : 400 }}>{tab.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{padding:'16px', width:'100%', minHeight:'88px', borderBottom:'1px solid #E8E5E0', background:'#F8F5F0'}}>
+                      {activeTab === 'photo' && (
+                        <button onClick={() => fileRef.current?.click()}
+                          style={{width:'100%', padding:'12px 0', background:'none', border:'1.5px solid #E0E0E0', borderRadius:'14px', color:'#2D2D2D', fontSize:'12px', fontWeight:500, cursor:'pointer', letterSpacing:'0.03em', transition:'all 0.2s'}}>
+                          {image ? t.replace : t.upload}
+                        </button>
+                      )}
+                      {activeTab === 'title' && (
+                        <input type="text" value={title} onChange={e => setTitle(e.target.value)} autoFocus
+                          style={{width:'100%', border:'1.5px solid #E0E0E0', borderRadius:'13px', outline:'none', padding:'10px 14px', color:'#2D2D2D', fontSize:'14px', fontWeight:400, background:'#FFFFFF', transition:'border-color 0.2s', fontFamily:'inherit', boxSizing:'border-box'}}
+                          onFocus={e => e.target.style.borderColor='#F26451'}
+                          onBlur={e => e.target.style.borderColor='#E0E0E0'}
+                          placeholder={t.titlePh} />
+                      )}
+                      {activeTab === 'date' && (
+                        <div className="flex items-center gap-2">
+                          <input type="text" value={dateText} onChange={e => setDateText(e.target.value)} autoFocus
+                            style={{flex:1, border:'1.5px solid #E0E0E0', borderRadius:'13px', outline:'none', padding:'10px 14px', color:'#2D2D2D', fontSize:'13px', fontWeight:400, background:'#FFFFFF', transition:'border-color 0.2s', fontFamily:'inherit', boxSizing:'border-box'}}
+                            onFocus={e => e.target.style.borderColor='#F26451'}
+                            onBlur={e => e.target.style.borderColor='#E0E0E0'}
+                            placeholder={t.datePh} />
+                          <button onClick={() => setDateText(AUTO_DATE)}
+                            style={{fontSize:'11px', color:'#7A7A7A', background:'none', border:'none', cursor:'pointer', fontWeight:400, whiteSpace:'nowrap'}}>
+                            {t.reset}
+                          </button>
+                        </div>
+                      )}
+                      {activeTab === 'split' && (
+                        <Section label={t.split} value={`${Math.round(split*100)} / ${Math.round((1-split)*100)}`}>
+                          <input type="range" min="0.2" max="0.75" step="0.01" value={split}
+                            onChange={e => setSplit(parseFloat(e.target.value))}
+                            style={{background: `linear-gradient(to right, #F26451 0%, #F26451 ${((split - 0.2) / 0.55) * 100}%, #E8E5E0 ${((split - 0.2) / 0.55) * 100}%, #E8E5E0 100%)`}} />
+                        </Section>
+                      )}
+                      {activeTab === 'fontSize' && (
+                        <Section label={t.fontSize} value={`${fontSize}px`}>
+                          <input type="range" min="12" max="72" step="1" value={fontSize}
+                            onChange={e => setFontSize(parseInt(e.target.value))}
+                            style={{background: `linear-gradient(to right, #F26451 0%, #F26451 ${((fontSize - 12) / 60) * 100}%, #E8E5E0 ${((fontSize - 12) / 60) * 100}%, #E8E5E0 100%)`}} />
+                        </Section>
+                      )}
+                      {activeTab === 'color' && (
+                        <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
+                          <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                            <div className="relative" style={{width:'34px', height:'26px', borderRadius:'8px', border:'1.5px solid #E0E0E0', overflow:'hidden', flexShrink:0}}>
+                              <input type="color" value={bgColor1} onChange={e => setBgColor1(e.target.value)}
+                                className="absolute -inset-1 opacity-0 cursor-pointer" style={{width:'calc(100%+8px)', height:'calc(100%+8px)'}} />
+                              <div className="absolute inset-0 pointer-events-none" style={{background: bgColor1}} />
+                            </div>
+                            <input type="range" min="0" max="1" step="0.01" value={colorRatio}
+                              onChange={e => setColorRatio(parseFloat(e.target.value))}
+                              style={{flex:1, height:'6px', background: `linear-gradient(to right, ${bgColor1}, ${bgColor2})`, borderRadius:'3px'}} />
+                            <div className="relative" style={{width:'34px', height:'26px', borderRadius:'8px', border:'1.5px solid #E0E0E0', overflow:'hidden', flexShrink:0}}>
+                              <input type="color" value={bgColor2} onChange={e => setBgColor2(e.target.value)}
+                                className="absolute -inset-1 opacity-0 cursor-pointer" style={{width:'calc(100%+8px)', height:'calc(100%+8px)'}} />
+                              <div className="absolute inset-0 pointer-events-none" style={{background: bgColor2}} />
+                            </div>
+                          </div>
+                          {palette.length > 0 && (
+                            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                              <div style={{display:'flex', gap:'6px', flexWrap:'wrap'}}>
+                                {palette.map((c, i) => (
+                                  <button key={i} onClick={() => { if (i === 0 || i % 2 === 0) setBgColor1(c); else setBgColor2(c); }} title={c}
+                                    style={{width:'22px', height:'22px', flexShrink:0, background:c, borderRadius:'7px', border: (bgColor1 === c || bgColor2 === c) ? '2px solid #F26451' : '2px solid transparent', cursor:'pointer', transition:'all 0.2s'}} />
+                                ))}
+                              </div>
+                              <button onClick={randomFromPalette}
+                                style={{fontSize:'11px', color:'#7A7A7A', background:'none', border:'none', cursor:'pointer', whiteSpace:'nowrap'}}>
+                                {t.random}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Desktop controls panel */}
+            {!isMobile && (
+              <div className="no-scrollbar flex-1 flex flex-col gap-2 overflow-y-auto" style={{height: PH, minWidth:'200px'}}>
+
+                {/* Card 1 — Photo */}
+                <Section label={t.photo}>
+                  <button onClick={() => fileRef.current?.click()}
+                    style={{width:'100%', padding:'9px 0', background:'#FFFFFF', border:'1.5px solid #E0E0E0', borderRadius:'13px', color:'#2D2D2D', fontSize:'12px', fontWeight:500, cursor:'pointer', letterSpacing:'0.03em', transition:'all 0.2s'}}
+                    onMouseEnter={e => { e.target.style.borderColor='#C0BAB2'; }}
+                    onMouseLeave={e => { e.target.style.borderColor='#E0E0E0'; }}>
+                    {image ? t.replace : t.upload}
+                  </button>
+                </Section>
+
+                {/* Card 2 — Title */}
+                <Section label={t.title}>
+                  <input type="text" value={title} onChange={e => setTitle(e.target.value)}
+                    style={{width:'100%', border:'1.5px solid #E0E0E0', borderRadius:'13px', outline:'none', padding:'9px 13px', color:'#2D2D2D', fontSize:'13px', fontWeight:400, background:'#FFFFFF', transition:'border-color 0.2s', fontFamily:'inherit', letterSpacing:'0.02em', boxSizing:'border-box'}}
+                    onFocus={e => e.target.style.borderColor='#F26451'}
+                    onBlur={e => e.target.style.borderColor='#E0E0E0'}
+                    placeholder={t.titlePh} />
+                </Section>
+
+                {/* Card 3 — Date */}
+                <Section label={t.date}>
+                  <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                    <input type="text" value={dateText} onChange={e => setDateText(e.target.value)}
+                      style={{flex:1, border:'1.5px solid #E0E0E0', borderRadius:'13px', outline:'none', padding:'9px 13px', color:'#2D2D2D', fontSize:'13px', fontWeight:400, background:'#FFFFFF', transition:'border-color 0.2s', fontFamily:'inherit', boxSizing:'border-box'}}
+                      onFocus={e => e.target.style.borderColor='#F26451'}
+                      onBlur={e => e.target.style.borderColor='#E0E0E0'}
+                      placeholder={t.datePh} />
+                    <button onClick={() => setDateText(AUTO_DATE)}
+                      style={{fontSize:'11px', color:'#7A7A7A', background:'none', border:'none', cursor:'pointer', transition:'color 0.2s', fontWeight:400, whiteSpace:'nowrap', padding:'4px 6px'}}
+                      onMouseEnter={e => e.target.style.color='#F26451'}
+                      onMouseLeave={e => e.target.style.color='#7A7A7A'}>
+                      {t.reset}
+                    </button>
+                  </div>
+                </Section>
+
+                {/* Card 4 — Split Ratio */}
+                <Section label={t.split} value={`${Math.round(split * 100)} / ${Math.round((1 - split) * 100)}`}>
+                  <input type="range" min="0.2" max="0.75" step="0.01" value={split}
+                    onChange={e => setSplit(parseFloat(e.target.value))}
+                    style={{background: `linear-gradient(to right, #F26451 0%, #F26451 ${((split - 0.2) / 0.55) * 100}%, #E8E5E0 ${((split - 0.2) / 0.55) * 100}%, #E8E5E0 100%)`}} />
+                </Section>
+
+                {/* Card 5 — Font Size */}
+                <Section label={t.fontSize} value={`${fontSize}px`}>
+                  <input type="range" min="12" max="72" step="1" value={fontSize}
+                    onChange={e => setFontSize(parseInt(e.target.value))}
+                    style={{background: `linear-gradient(to right, #F26451 0%, #F26451 ${((fontSize - 12) / 60) * 100}%, #E8E5E0 ${((fontSize - 12) / 60) * 100}%, #E8E5E0 100%)`}} />
+                </Section>
+
+                {/* Card 6 — Background Color */}
+                <Section label={t.bgColor}>
+                  <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'10px'}}>
+                    <div className="relative" style={{width:'32px', height:'24px', borderRadius:'8px', border:'1.5px solid #E0E0E0', overflow:'hidden', flexShrink:0}}>
+                      <input type="color" value={bgColor1} onChange={e => setBgColor1(e.target.value)}
+                        className="absolute -inset-1 opacity-0 cursor-pointer" style={{width:'calc(100%+8px)', height:'calc(100%+8px)'}} />
+                      <div className="absolute inset-0 pointer-events-none" style={{background: bgColor1}} />
+                    </div>
+                    <input type="range" min="0" max="1" step="0.01" value={colorRatio}
+                      onChange={e => setColorRatio(parseFloat(e.target.value))}
+                      style={{flex:1, height:'6px', background: `linear-gradient(to right, ${bgColor1}, ${bgColor2})`, borderRadius:'3px'}} />
+                    <div className="relative" style={{width:'32px', height:'24px', borderRadius:'8px', border:'1.5px solid #E0E0E0', overflow:'hidden', flexShrink:0}}>
+                      <input type="color" value={bgColor2} onChange={e => setBgColor2(e.target.value)}
+                        className="absolute -inset-1 opacity-0 cursor-pointer" style={{width:'calc(100%+8px)', height:'calc(100%+8px)'}} />
+                      <div className="absolute inset-0 pointer-events-none" style={{background: bgColor2}} />
+                    </div>
+                  </div>
+                  {palette.length > 0 && (
+                    <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                      <div style={{display:'flex', gap:'5px', flexWrap:'wrap'}}>
+                        {palette.map((c, i) => (
+                          <button key={i} onClick={() => { if (i === 0 || i % 2 === 0) setBgColor1(c); else setBgColor2(c); }} title={c}
+                            style={{width:'18px', height:'18px', flexShrink:0, background:c, borderRadius:'6px', border: (bgColor1 === c || bgColor2 === c) ? '2px solid #F26451' : '2px solid transparent', cursor:'pointer', transition:'all 0.2s', transform: (bgColor1 === c || bgColor2 === c) ? 'scale(1.1)' : 'scale(1)'}}
+                            onMouseEnter={e => { if (bgColor1 !== c && bgColor2 !== c) e.target.style.borderColor = '#D0CDC8'; }}
+                            onMouseLeave={e => { if (bgColor1 !== c && bgColor2 !== c) e.target.style.borderColor = 'transparent'; }} />
+                        ))}
+                      </div>
+                      <button onClick={randomFromPalette}
+                        style={{fontSize:'11px', color:'#7A7A7A', background:'none', border:'none', cursor:'pointer', transition:'color 0.2s', whiteSpace:'nowrap', padding:'2px 6px'}}
+                        onMouseEnter={e => e.target.style.color='#F26451'}
+                        onMouseLeave={e => e.target.style.color='#7A7A7A'}>
+                        {t.random}
+                      </button>
+                    </div>
+                  )}
+                </Section>
+
+                {/* Card 7 — Export */}
+                <div style={{background:'#FAFAF8', borderRadius:'14px', padding:'11px 14px', boxShadow:'0 1px 2px rgba(0,0,0,0.03)'}}>
+                  <button onClick={sourceType === 'video' ? exportVideo : exportPng} disabled={isExporting}
+                    style={{width:'100%', padding:'13px 0', color:'#FFFFFF', fontSize:'12px', fontWeight:600, letterSpacing:'0.05em', background:'#F26451', border:'none', borderRadius:'14px', cursor:'pointer', transition:'all 0.2s', opacity: isExporting ? 0.5 : 1}}
+                    onMouseEnter={e => { if (!isExporting) e.target.style.background='#E55343'; }}
+                    onMouseLeave={e => { if (!isExporting) e.target.style.background='#F26451'; }}>
+                    {isExporting ? t.recording : sourceType === 'video' ? t.exportVideoBtn : t.exportBtn}
+                  </button>
+                  <p style={{fontSize:'11px', color:'#B0B0B0', textAlign:'center', marginTop:'8px', marginBottom:0}}>
+                    {sourceType === 'video' ? t.exportVideoNote : t.exportNote}
+                  </p>
+                </div>
+
+              </div>
+            )}
+              </div>
+            </div>
+          </div>
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
