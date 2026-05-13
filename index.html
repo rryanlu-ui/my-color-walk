@@ -68,7 +68,7 @@
         photo: 'Photo', upload: 'UPLOAD PHOTO / VIDEO', replace: 'REPLACE',
         title: 'Title', titlePh: 'ENTER TITLE...',
         date: 'Date', datePh: 'leave empty to hide', reset: 'RESET',
-        split: 'Split ratio', fontSize: 'Font size', textColor: 'Text color', bgColor: 'Background color',
+        split: 'Split ratio', fontSize: 'Font size', textColor: 'Text color', fontWeight: 'Weight', textAlign: 'Align', bgColor: 'Background color',
         fromPhoto: 'from photo', autoExtracted: 'auto-extracted', random: '↻ RANDOM',
         exportBtn: 'EXPORT AS PNG', exportNote: 'exports at full resolution',
         exportVideoBtn: 'EXPORT AS VIDEO', exportVideoNote: 'records up to 5 sec · exports as .mp4',
@@ -99,7 +99,7 @@
         photo: '照片 / 视频', upload: '上传照片 / 视频', replace: '重新上传',
         title: '标题', titlePh: '输入标题…',
         date: '日期', datePh: '留空则不显示', reset: '重置',
-        split: '分割比例', fontSize: '字体大小', textColor: '文字颜色', bgColor: '背景颜色',
+        split: '分割比例', fontSize: '字体大小', textColor: '文字颜色', fontWeight: '粗细', textAlign: '对齐', bgColor: '背景颜色',
         fromPhoto: '来自照片', autoExtracted: '自动提取', random: '↻ 随机',
         exportBtn: '导出 PNG', exportNote: '按原图分辨率导出',
         exportVideoBtn: '导出视频', exportVideoNote: '最长录制 5 秒 · 导出为 .mp4',
@@ -285,6 +285,8 @@
       const [bgColor1, setBgColor1] = useState('#c9bba8');
       const [bgColor2, setBgColor2] = useState('#8b9dc3');
       const [textColor, setTextColor] = useState('#1c1917');
+      const [fontWeight, setFontWeight] = useState(400);
+      const [textAlign, setTextAlign] = useState('center');
       const [colorRatio, setColorRatio] = useState(0.5);
       const [palette, setPalette]     = useState([]);
       const [pan, setPan]             = useState({ x: 0, y: 0 });
@@ -410,27 +412,29 @@
         }
 
         const tc = textColor;
-        ctx.fillStyle = tc; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.font = `400 ${fontSize}px "Playfair Display","KaiTi","STKaiti",serif`;
+        var textX = textAlign === 'left' ? Math.round(CANVAS_W * 0.12) : textAlign === 'right' ? Math.round(CANVAS_W * 0.88) : CANVAS_W / 2;
+        ctx.fillStyle = tc; ctx.textAlign = textAlign; ctx.textBaseline = 'middle';
+        ctx.font = fontWeight + ' ' + fontSize + 'px "Playfair Display","KaiTi","STKaiti",serif';
         if ('letterSpacing' in ctx) ctx.letterSpacing = '6px';
-        const lines = measureLines(ctx, title || ' ', CANVAS_W * 0.7);
-        const btm = drawLines(ctx, lines, CANVAS_W / 2, topH * 0.46, fontSize * 1.5);
+        const maxTW = textAlign === 'center' ? CANVAS_W * 0.7 : CANVAS_W * 0.76;
+        const lines = measureLines(ctx, title || ' ', maxTW);
+        const btm = drawLines(ctx, lines, textX, topH * 0.46, fontSize * 1.5);
 
         if (dateText) {
           const ry = btm + 32;
           ctx.strokeStyle = tc; ctx.globalAlpha = 0.3; ctx.lineWidth = 0.5;
-          ctx.beginPath(); ctx.moveTo(CANVAS_W/2 - 40, ry); ctx.lineTo(CANVAS_W/2 + 40, ry); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(textX - 40, ry); ctx.lineTo(textX + 40, ry); ctx.stroke();
           ctx.globalAlpha = 1;
 
-          ctx.font = `400 ${Math.max(14, Math.round(fontSize * 0.7))}px "Playfair Display","KaiTi","STKaiti",serif`;
+          ctx.font = fontWeight + ' ' + Math.max(14, Math.round(fontSize * 0.7)) + 'px "Playfair Display","KaiTi","STKaiti",serif';
           if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
           ctx.fillStyle = tc;
           ctx.globalAlpha = 0.55;
-          ctx.fillText(dateText, CANVAS_W / 2, ry + 28);
+          ctx.fillText(formatDateForDisplay(dateText, lang), textX, ry + 28);
           ctx.globalAlpha = 1;
           if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
         }
-      }, [image, bgColor1, bgColor2, colorRatio, title, split, fontSize, pan, dateText, lang, photoZoom, rotation, textColor]);
+      }, [image, bgColor1, bgColor2, colorRatio, title, split, fontSize, pan, dateText, lang, photoZoom, rotation, textColor, fontWeight, textAlign]);
 
       useEffect(() => { draw(); }, [draw, fontsReady]);
       useEffect(() => { if (splashStage === 'done') { requestAnimationFrame(() => draw()); } }, [splashStage, draw]);
@@ -542,21 +546,23 @@
           ctx.drawImage(image, dx, dy, cw, ch);
           ctx.restore();
           var tc = textColor;
-          ctx.fillStyle = tc; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.font = '400 ' + fontSize + 'px "Playfair Display","KaiTi","STKaiti",serif';
+          var textX = textAlign === 'left' ? Math.round(w * 0.12) : textAlign === 'right' ? Math.round(w * 0.88) : w / 2;
+          ctx.fillStyle = tc; ctx.textAlign = textAlign; ctx.textBaseline = 'middle';
+          ctx.font = fontWeight + ' ' + fontSize + 'px "Playfair Display","KaiTi","STKaiti",serif';
           if ('letterSpacing' in ctx) ctx.letterSpacing = '6px';
-          var lines = measureLines(ctx, title || ' ', w * 0.7);
-          var btm = drawLines(ctx, lines, w / 2, topH * 0.46, fontSize * 1.5);
+          var maxTW = textAlign === 'center' ? w * 0.7 : w * 0.76;
+          var lines = measureLines(ctx, title || ' ', maxTW);
+          var btm = drawLines(ctx, lines, textX, topH * 0.46, fontSize * 1.5);
           if (dateText) {
             var ry = btm + 32;
             ctx.strokeStyle = tc; ctx.globalAlpha = 0.3; ctx.lineWidth = 0.5;
-            ctx.beginPath(); ctx.moveTo(w / 2 - 40, ry); ctx.lineTo(w / 2 + 40, ry); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(textX - 40, ry); ctx.lineTo(textX + 40, ry); ctx.stroke();
             ctx.globalAlpha = 1;
             var dfs = Math.max(14, Math.round(fontSize * 0.7));
-            ctx.font = '400 ' + dfs + 'px "Playfair Display","KaiTi","STKaiti",serif';
+            ctx.font = fontWeight + ' ' + dfs + 'px "Playfair Display","KaiTi","STKaiti",serif';
             if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
             ctx.fillStyle = tc; ctx.globalAlpha = 0.55;
-            ctx.fillText(formatDateForDisplay(dateText, lang), w / 2, ry + 28);
+            ctx.fillText(formatDateForDisplay(dateText, lang), textX, ry + 28);
             ctx.globalAlpha = 1;
           }
         };
@@ -648,7 +654,7 @@
         } else {
           setTimeout(function() { recorder.stop(); }, durationSec * 1000);
         }
-      }, [image, sourceType, isExporting, title, bgColor1, bgColor2, colorRatio, split, fontSize, pan, photoZoom, rotation, textColor, dateText, lang]);
+      }, [image, sourceType, isExporting, title, bgColor1, bgColor2, colorRatio, split, fontSize, pan, photoZoom, rotation, textColor, dateText, lang, fontWeight, textAlign]);
 
       // Clamp pan so photo never exposes empty space (both axes, zoom-aware)
       const clampPan = useCallback((nx, ny, zoom) => {
@@ -822,26 +828,28 @@
 
         const tc = textColor;
         const fs = Math.round(fontSize * scale);
-        ctx.fillStyle = tc; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        var pngTextX = textAlign === 'left' ? Math.round(EW * 0.12) : textAlign === 'right' ? Math.round(EW * 0.88) : EW / 2;
+        ctx.fillStyle = tc; ctx.textAlign = textAlign; ctx.textBaseline = 'middle';
         if (sampleRef.current && !image) { ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = Math.round(4 * scale); }
-        ctx.font = `400 ${fs}px "Playfair Display","KaiTi","STKaiti",serif`;
-        if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(6 * scale)}px`;
-        const lines = measureLines(ctx, title || ' ', EW * 0.7);
-        const btm = drawLines(ctx, lines, EW / 2, topH * 0.46, Math.round(fs * 1.5));
+        ctx.font = fontWeight + ' ' + fs + 'px "Playfair Display","KaiTi","STKaiti",serif';
+        if ('letterSpacing' in ctx) ctx.letterSpacing = Math.round(6 * scale) + 'px';
+        const maxTW = textAlign === 'center' ? EW * 0.7 : EW * 0.76;
+        const lines = measureLines(ctx, title || ' ', maxTW);
+        const btm = drawLines(ctx, lines, pngTextX, topH * 0.46, Math.round(fs * 1.5));
 
         if (dateText) {
           const ry = btm + Math.round(32 * scale);
           ctx.strokeStyle = tc; ctx.globalAlpha = 0.3; ctx.lineWidth = Math.max(0.5, scale * 0.5);
           ctx.beginPath();
-          ctx.moveTo(EW/2 - Math.round(40*scale), ry);
-          ctx.lineTo(EW/2 + Math.round(40*scale), ry);
+          ctx.moveTo(pngTextX - Math.round(40*scale), ry);
+          ctx.lineTo(pngTextX + Math.round(40*scale), ry);
           ctx.stroke();
           ctx.globalAlpha = 1;
           const dfs = Math.round(Math.max(14, Math.round(fontSize * 0.7)) * scale);
-          ctx.font = `400 ${dfs}px "Playfair Display","KaiTi","STKaiti",serif`;
-          if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(4 * scale)}px`;
+          ctx.font = fontWeight + ' ' + dfs + 'px "Playfair Display","KaiTi","STKaiti",serif';
+          if ('letterSpacing' in ctx) ctx.letterSpacing = Math.round(4 * scale) + 'px';
           ctx.fillStyle = tc; ctx.globalAlpha = 0.55;
-          ctx.fillText(dateText, EW / 2, ry + Math.round(28 * scale));
+          ctx.fillText(formatDateForDisplay(dateText, lang), pngTextX, ry + Math.round(28 * scale));
           ctx.globalAlpha = 1;
           if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
           if (sampleRef.current && !image) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; }
@@ -866,7 +874,7 @@
             setShowExportSuccess(true);
           }
         }, 'image/png');
-      }, [title, isMobile, image, split, bgColor1, bgColor2, colorRatio, fontSize, photoZoom, rotation, pan, dateText, textColor]);
+      }, [title, isMobile, image, split, bgColor1, bgColor2, colorRatio, fontSize, photoZoom, rotation, pan, dateText, textColor, fontWeight, textAlign, lang]);
 
       if (splashStage !== 'done') {
         return (
@@ -1161,6 +1169,8 @@
                   { id: 'date',     icon: '≡',   label: t.date     },
                   { id: 'split',    icon: '/',   label: t.split    },
                   { id: 'fontSize', icon: 'Aa',  label: t.fontSize },
+                  { id: 'fontWeight',icon: 'B',   label: t.fontWeight },
+                  { id: 'textAlign',icon: '≡',   label: t.textAlign },
                   { id: 'textColor',icon: 'A',   label: t.textColor },
                   { id: 'color',    icon: '■',   label: t.bgColor  },
                 ];
@@ -1217,6 +1227,31 @@
                             onChange={e => setFontSize(parseInt(e.target.value))}
                             style={{background: `linear-gradient(to right, #F26451 0%, #F26451 ${((fontSize - 12) / 60) * 100}%, #E8E5E0 ${((fontSize - 12) / 60) * 100}%, #E8E5E0 100%)`}} />
                         </Section>
+                      )}
+                      {activeTab === 'fontWeight' && (
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => setFontWeight(400)}
+                            style={{flex:1, padding:'10px 0', background: fontWeight === 400 ? '#F26451' : '#FFFFFF', border:'1.5px solid ' + (fontWeight === 400 ? '#F26451' : '#E0E0E0'), borderRadius:'13px', color: fontWeight === 400 ? '#fff' : '#2D2D2D', fontSize:'13px', fontWeight:400, cursor:'pointer', transition:'all 0.2s', fontFamily:'"Playfair Display",serif'}}>
+                            Regular
+                          </button>
+                          <button onClick={() => setFontWeight(700)}
+                            style={{flex:1, padding:'10px 0', background: fontWeight === 700 ? '#F26451' : '#FFFFFF', border:'1.5px solid ' + (fontWeight === 700 ? '#F26451' : '#E0E0E0'), borderRadius:'13px', color: fontWeight === 700 ? '#fff' : '#2D2D2D', fontSize:'13px', fontWeight:700, cursor:'pointer', transition:'all 0.2s', fontFamily:'"Playfair Display",serif'}}>
+                            Bold
+                          </button>
+                        </div>
+                      )}
+                      {activeTab === 'textAlign' && (
+                        <div className="flex items-center gap-2">
+                          {['left','center','right'].map(function(a) {
+                            var label = a === 'left' ? 'Left' : a === 'center' ? 'Center' : 'Right';
+                            return (
+                              <button key={a} onClick={function() { setTextAlign(a); }}
+                                style={{flex:1, padding:'10px 0', background: textAlign === a ? '#F26451' : '#FFFFFF', border:'1.5px solid ' + (textAlign === a ? '#F26451' : '#E0E0E0'), borderRadius:'13px', color: textAlign === a ? '#fff' : '#2D2D2D', fontSize:'11px', fontWeight:500, cursor:'pointer', transition:'all 0.2s', letterSpacing:'0.03em'}}>
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
                       {activeTab === 'textColor' && (
                         <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
@@ -1331,6 +1366,36 @@
                       <div className="absolute inset-0 pointer-events-none" style={{ background: textColor }} />
                     </div>
                     <span style={{fontSize:'12px', color:'#2D2D2D', fontFamily:'"Courier Prime", monospace', letterSpacing:'0.05em'}}>{textColor.toUpperCase()}</span>
+                  </div>
+                </Section>
+
+                {/* Card 5.6 — Font Weight */}
+                <Section label={t.fontWeight}>
+                  <div style={{display:'flex', gap:'8px'}}>
+                    <button onClick={() => setFontWeight(400)}
+                      style={{flex:1, padding:'9px 0', background: fontWeight === 400 ? '#F26451' : '#FFFFFF', border:'1.5px solid ' + (fontWeight === 400 ? '#F26451' : '#E0E0E0'), borderRadius:'11px', color: fontWeight === 400 ? '#fff' : '#2D2D2D', fontSize:'13px', fontWeight:400, cursor:'pointer', transition:'all 0.2s', fontFamily:'"Playfair Display",serif'}}>
+                      Regular
+                    </button>
+                    <button onClick={() => setFontWeight(700)}
+                      style={{flex:1, padding:'9px 0', background: fontWeight === 700 ? '#F26451' : '#FFFFFF', border:'1.5px solid ' + (fontWeight === 700 ? '#F26451' : '#E0E0E0'), borderRadius:'11px', color: fontWeight === 700 ? '#fff' : '#2D2D2D', fontSize:'13px', fontWeight:700, cursor:'pointer', transition:'all 0.2s', fontFamily:'"Playfair Display",serif'}}>
+                      Bold
+                    </button>
+                  </div>
+                </Section>
+
+                {/* Card 5.7 — Text Align */}
+                <Section label={t.textAlign}>
+                  <div style={{display:'flex', gap:'6px'}}>
+                    {['left','center','right'].map(function(a) {
+                      var label = a === 'left' ? 'Left' : a === 'center' ? 'Center' : 'Right';
+                      var icon = a === 'left' ? '⫷' : a === 'center' ? '⫿' : '⫸';
+                      return (
+                        <button key={a} onClick={function() { setTextAlign(a); }} title={label}
+                          style={{flex:1, padding:'8px 0', background: textAlign === a ? '#F26451' : '#FFFFFF', border:'1.5px solid ' + (textAlign === a ? '#F26451' : '#E0E0E0'), borderRadius:'11px', color: textAlign === a ? '#fff' : '#2D2D2D', fontSize:'15px', cursor:'pointer', transition:'all 0.2s'}}>
+                          {icon}
+                        </button>
+                      );
+                    })}
                   </div>
                 </Section>
 
